@@ -1,0 +1,347 @@
+---
+apiVersion: v1
+kind: Canvas
+metadata:
+  id: 00000000-0000-0000-0000-000000000000
+  name: app-cluster-auto-scaler
+  description: Autoscale a Hetzner worker fleet from Grafana CPU signals.
+  isTemplate: false
+spec:
+  nodes:
+    - id: mem-count-up
+      name: Read Cluster Nodes
+      type: TYPE_ACTION
+      component: readMemory
+      configuration:
+        matchList:
+          - name: cluster
+            value: workers
+        namespace: cluster_nodes
+        resultMode: all
+      position:
+        x: 1280
+        "y": 640
+      isCollapsed: false
+      paused: false
+    - id: check-max
+      name: Below Max (6)?
+      type: TYPE_ACTION
+      component: if
+      configuration:
+        expression: "{{ len($['Read Cluster Nodes'].data.values) < 6 }}"
+      position:
+        x: 1920
+        "y": 640
+      isCollapsed: false
+      paused: false
+    - id: slack-up-ok
+      name: Notify Scale Up
+      type: TYPE_ACTION
+      component: slack.sendTextMessage
+      configuration:
+        channel: "#cluster-ops"
+        text: "Scaled up: added {{ $['Create Server'].data.name }} ({{ $['Create Server'].data.publicIp }}) to worker cluster. Now at {{ len($['Read Cluster Nodes'].data.values) + 1 }} nodes."
+      position:
+        x: 4480
+        "y": 640
+      isCollapsed: false
+      integration:
+        id: 00000000-0000-0000-0000-000000000000
+      paused: false
+    - id: q-load-down
+      name: Query Avg CPU (30m)
+      type: TYPE_ACTION
+      component: grafana.queryDataSource
+      configuration:
+        dataSource: prometheus
+        query: avg(100 - rate(node_cpu_seconds_total{mode="idle"}[30m]) * 100)
+      position:
+        x: 640
+        "y": 0
+      isCollapsed: false
+      integration:
+        id: 00000000-0000-0000-0000-000000000000
+      paused: false
+    - id: forget-node
+      name: Forget Node
+      type: TYPE_ACTION
+      component: deleteMemory
+      configuration:
+        matchList:
+          - name: server_id
+            value: "{{ string(int($['Delete Newest Node'].data.serverId)) }}"
+        namespace: cluster_nodes
+      position:
+        x: 3200
+        "y": 0
+      isCollapsed: false
+      paused: false
+    - id: mem-count-down
+      name: Read Cluster Nodes (Down)
+      type: TYPE_ACTION
+      component: readMemory
+      configuration:
+        matchList:
+          - name: cluster
+            value: workers
+        namespace: cluster_nodes
+        resultMode: all
+      position:
+        x: 1280
+        "y": 0
+      isCollapsed: false
+      paused: false
+    - id: create-server
+      name: Create Server
+      type: TYPE_ACTION
+      component: hetzner.createServer
+      configuration:
+        image: ubuntu-22.04
+        location: nbg1
+        name: worker-{{ string(int(now().Unix())) }}
+        serverType: cpx21
+        sshKeys:
+          - cluster-deploy
+        userData: |
+          #cloud-config
+          packages:
+            - curl
+            - ca-certificates
+            - gnupg
+          runcmd:
+            - install -m 0755 -d /etc/apt/keyrings
+            - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+            - chmod a+r /etc/apt/keyrings/docker.asc
+            - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
+            - apt-get update
+            - apt-get install -y docker-ce docker-ce-cli containerd.io
+            - systemctl enable --now docker
+      position:
+        x: 2560
+        "y": 460
+      isCollapsed: false
+      integration:
+        id: 00000000-0000-0000-0000-000000000000
+      paused: false
+    - id: sched-down
+      name: Every 10 min
+      type: TYPE_TRIGGER
+      component: schedule
+      configuration:
+        minutesInterval: 10
+        timezone: "0"
+        type: minutes
+      position:
+        x: 0
+        "y": 0
+      isCollapsed: false
+      paused: false
+    - id: slack-down-ok
+      name: Notify Scale Down
+      type: TYPE_ACTION
+      component: slack.sendTextMessage
+      configuration:
+        channel: "#cluster-ops"
+        text: "Scaled down: removed worker {{ $['Delete Newest Node'].data.serverId }}. Now at {{ len($['Read Cluster Nodes (Down)'].data.values) - 1 }} nodes."
+      position:
+        x: 3840
+        "y": 0
+      isCollapsed: false
+      integration:
+        id: 00000000-0000-0000-0000-000000000000
+      paused: false
+    - id: check-min
+      name: Above Min (2)?
+      type: TYPE_ACTION
+      component: if
+      configuration:
+        expression: "{{ len($['Read Cluster Nodes (Down)'].data.values) > 2 }}"
+      position:
+        x: 1920
+        "y": 0
+      isCollapsed: false
+      paused: false
+    - id: slack-up-cap
+      name: At Capacity
+      type: TYPE_ACTION
+      component: slack.sendTextMessage
+      configuration:
+        channel: "#cluster-ops"
+        text: "Worker cluster is at max capacity (6 nodes) and load is still high. Investigate: {{ root().data.alerts[0].annotations.summary }}"
+      position:
+        x: 2560
+        "y": 820
+      isCollapsed: false
+      integration:
+        id: 00000000-0000-0000-0000-000000000000
+      paused: false
+    - id: q-load-up
+      name: Query Current Load
+      type: TYPE_ACTION
+      component: grafana.queryDataSource
+      configuration:
+        dataSource: prometheus
+        query: avg(100 - rate(node_cpu_seconds_total{mode="idle"}[5m]) * 100)
+      position:
+        x: 640
+        "y": 640
+      isCollapsed: false
+      integration:
+        id: 00000000-0000-0000-0000-000000000000
+      paused: false
+    - id: delete-server
+      name: Delete Newest Node
+      type: TYPE_ACTION
+      component: hetzner.deleteServer
+      configuration:
+        server: "{{ $['Read Cluster Nodes (Down)'].data.values[len($['Read Cluster Nodes (Down)'].data.values) - 1].server_id }}"
+      position:
+        x: 2560
+        "y": 0
+      isCollapsed: false
+      integration:
+        id: 00000000-0000-0000-0000-000000000000
+      paused: false
+    - id: join-ssh
+      name: Bootstrap Worker
+      type: TYPE_ACTION
+      component: ssh
+      configuration:
+        authentication:
+          authMethod: ssh_key
+          privateKey:
+            key: private-key
+            secret: cluster-ssh-key
+        commands: |
+          set -euo pipefail
+
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            command -v docker >/dev/null 2>&1 && break
+            sleep 5
+          done
+
+          WORKLOAD_IMAGE="${WORKLOAD_IMAGE:-nginxdemos/hello:latest}"
+          CLUSTER_NAME="${CLUSTER_NAME:-workers}"
+          NODE_NAME="${NODE_NAME:-node-$(hostname)}"
+
+          docker pull "$WORKLOAD_IMAGE"
+          docker run -d \
+            --name workload \
+            --restart unless-stopped \
+            -e CLUSTER_NAME="$CLUSTER_NAME" \
+            -e NODE_NAME="$NODE_NAME" \
+            -p 80:80 \
+            "$WORKLOAD_IMAGE"
+
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            curl -fsS http://localhost/ >/dev/null && exit 0
+            sleep 3
+          done
+          echo "workload health check failed" >&2
+          exit 1
+        connectionRetry:
+          enabled: true
+          intervalSeconds: 15
+          retries: 20
+        host: "{{ previous().data.publicIp }}"
+        port: 22
+        timeout: 600
+        username: root
+      position:
+        x: 3200
+        "y": 640
+      isCollapsed: false
+      paused: false
+    - id: save-node
+      name: Remember Node
+      type: TYPE_ACTION
+      component: upsertMemory
+      configuration:
+        matchList:
+          - name: server_id
+            value: "{{ string(int($['Create Server'].data.id)) }}"
+        namespace: cluster_nodes
+        valueList:
+          - name: server_id
+            value: "{{ string(int($['Create Server'].data.id)) }}"
+          - name: server_name
+            value: "{{ $['Create Server'].data.name }}"
+          - name: ipv4
+            value: "{{ $['Create Server'].data.publicIp }}"
+          - name: cluster
+            value: workers
+          - name: created_at
+            value: "{{ string(int(now().Unix())) }}"
+          - name: triggered_by
+            value: "{{ root().data.alerts[0].labels.alertname }}"
+      position:
+        x: 3840
+        "y": 640
+      isCollapsed: false
+      paused: false
+    - id: t-alert-up
+      name: Grafana HighCPU Alert
+      type: TYPE_TRIGGER
+      component: grafana.onAlertFiring
+      configuration:
+        alertNames:
+          - HighCPU
+      position:
+        x: 0
+        "y": 640
+      isCollapsed: false
+      integration:
+        id: 00000000-0000-0000-0000-000000000000
+      paused: false
+  edges:
+    - sourceId: check-max
+      targetId: create-server
+      channel: "true"
+    - sourceId: check-max
+      targetId: slack-up-cap
+      channel: "false"
+    - sourceId: check-min
+      targetId: delete-server
+      channel: "true"
+    - sourceId: create-server
+      targetId: join-ssh
+      channel: default
+    - sourceId: delete-server
+      targetId: forget-node
+      channel: default
+    - sourceId: forget-node
+      targetId: slack-down-ok
+      channel: deleted
+    - sourceId: join-ssh
+      targetId: save-node
+      channel: success
+    - sourceId: mem-count-down
+      targetId: check-min
+      channel: found
+    - sourceId: mem-count-up
+      targetId: check-max
+      channel: found
+    - sourceId: mem-count-up
+      targetId: check-max
+      channel: notFound
+    - sourceId: q-load-down
+      targetId: mem-count-down
+      channel: default
+    - sourceId: q-load-up
+      targetId: mem-count-up
+      channel: default
+    - sourceId: save-node
+      targetId: slack-up-ok
+      channel: default
+    - sourceId: sched-down
+      targetId: q-load-down
+      channel: default
+    - sourceId: t-alert-up
+      targetId: q-load-up
+      channel: default
+  changeManagement:
+    enabled: false
+    approvals:
+      - type: TYPE_ANYONE
+        userId: ""
+        roleName: ""
