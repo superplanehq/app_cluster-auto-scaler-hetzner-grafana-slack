@@ -12,7 +12,7 @@ spec:
           **Generic worker-fleet autoscaler** running on Hetzner Cloud.
 
 
-          - **Autoscale UP** — Grafana `HighCPU` alert fires → a new `cpx21` node is provisioned, Docker installed,
+          - **Autoscale UP** — Grafana `HighCPU` alert fires → a new `cpx11` node is provisioned, Docker installed,
           workload container started.
 
           - **Autoscale DOWN** — every 10 min, if 30-min avg CPU is low and we're above the floor (2 nodes), the newest
@@ -22,8 +22,8 @@ spec:
           (cluster=`workers`).
 
 
-          > **Min:** 2 nodes &nbsp;&nbsp;•&nbsp;&nbsp; **Max:** 6 nodes &nbsp;&nbsp;•&nbsp;&nbsp; **Server type:**
-          `cpx21` (3 vCPU / 4 GB) &nbsp;&nbsp;•&nbsp;&nbsp; **Region:** `nbg1`
+          > **Min:** 2 nodes &nbsp;&nbsp;•&nbsp;&nbsp; **Max:** 4 nodes &nbsp;&nbsp;•&nbsp;&nbsp; **Server type:**
+          `cpx11` (2 vCPU / 2 GB) &nbsp;&nbsp;•&nbsp;&nbsp; **Region:** `fsn1`
         title: Cluster Autoscaler
     - id: kpis
       type: number
@@ -71,7 +71,7 @@ spec:
       type: nodes
       content:
         nodes:
-          - description: Wakes up on Grafana `HighCPU`. Provisions a Hetzner cpx21 and bootstraps the worker.
+          - description: Wakes up on Grafana `HighCPU`. Provisions a Hetzner cpx11 and bootstraps the worker.
             label: Autoscale UP
             node: t-alert-up
           - description: Cron-driven. Reclaims the newest node when 30-min avg CPU is quiet.
@@ -125,12 +125,12 @@ spec:
         body: >
           <details open>
 
-          <summary><strong>Cluster is at max capacity (6/6) and CPU still high</strong></summary>
+          <summary><strong>Cluster is at max capacity (4/4) and CPU still high</strong></summary>
 
 
           1. Confirm the alert: open Grafana and inspect the CPU panel feeding `HighCPU`.
 
-          2. If genuine peak, edit the canvas: bump `check-max` expression from `< 6` to a higher cap, raise Hetzner
+          2. If genuine peak, edit the canvas: bump `check-max` expression from `< 4` to a higher cap, raise Hetzner
           account limits if needed, then publish.
 
           3. Otherwise investigate the workload — is one host hot? Check the `Query Avg CPU (30m)` output and the
